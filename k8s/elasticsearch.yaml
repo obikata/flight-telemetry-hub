@@ -25,6 +25,8 @@ spec:
               value: "false"
             - name: ES_JAVA_OPTS
               value: "-Xms512m -Xmx512m"
+            - name: search.max_buckets
+              value: "200000"
           readinessProbe:
             httpGet:
               path: /_cluster/health

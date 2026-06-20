@@ -31,7 +31,7 @@ export function createApiRouter(
         count: records.length,
         data: records,
         hint: jobRunning
-          ? "Scores rise after ~10 minutes of fleet telemetry. Look for DEMO-SAT-042."
+          ? "Scores rise after ~10 minutes of fleet telemetry. Look for DEMO-SAT-042 (EPS/ADCS) and DEMO-SAT-087 (tank_pressure)."
           : "ML job not running — run: docker compose run --rm ml-setup",
       });
     } catch (error) {

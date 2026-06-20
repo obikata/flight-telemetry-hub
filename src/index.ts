@@ -23,10 +23,10 @@ async function main(): Promise<void> {
 
   const mlClient = new MlAnomalyClient(store.client, config.mlJobId);
   const agent = new FleetWatchAgent(
-    store.client,
-    config.elasticsearchIndex,
     mlClient,
     config.agentPollIntervalMs,
+    config.agentMlMinScore,
+    config.agentMlLimit,
   );
 
   const app = express();

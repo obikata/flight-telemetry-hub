@@ -97,7 +97,9 @@ create_datafeed() {
       \"indices\": [\"${INDEX}\"],
       \"query\": { \"match_all\": {} },
       \"frequency\": \"1m\",
-      \"scroll_size\": 1000
+      \"scroll_size\": 1000,
+      \"query_delay\": \"60s\",
+      \"delayed_data_check_config\": { \"enabled\": false }
     }" >/dev/null
 }
 

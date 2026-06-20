@@ -8,6 +8,9 @@ const INTERVAL_MS = Number(process.env.INTERVAL_MS ?? 1000);
 const NUM_SPACECRAFT = Number(process.env.NUM_SPACECRAFT ?? 200);
 const ANOMALY_SPACECRAFT_ID =
   process.env.ANOMALY_SPACECRAFT_ID ?? "DEMO-SAT-042";
+/** Secondary outlier: slow propellant tank leak (tank_pressure low vs fleet). */
+const PROP_ANOMALY_SPACECRAFT_ID =
+  process.env.PROP_ANOMALY_SPACECRAFT_ID ?? "DEMO-SAT-087";
 /** 90-minute orbit so day/night is visible within a 15-minute Kibana window. */
 const ORBIT_PERIOD_MS = Number(process.env.ORBIT_PERIOD_MS ?? 90 * 60 * 1000);
 
@@ -155,6 +158,12 @@ function buildValue(
     }
   }
 
+  if (spacecraftId === PROP_ANOMALY_SPACECRAFT_ID && metric === "tank_pressure") {
+    const elapsedMinutes = (now - startTime) / 60_000;
+    // Step offset + leak — separates from ~248 kPa fleet quickly after simulator restart
+    value -= 8 + Math.min(18, elapsedMinutes * 0.9);
+  }
+
   return clamp(metric, value);
 }
 
@@ -211,7 +220,7 @@ function connect(fleet: string[]): void {
       `[simulator] streaming ${fleet.length} spacecraft (${INTERVAL_MS}ms tick, ${ORBIT_PERIOD_MS / 60_000}min orbit)`,
     );
     console.log(
-      `[simulator] injected anomaly spacecraft: ${ANOMALY_SPACECRAFT_ID}`,
+      `[simulator] injected anomaly spacecraft: ${ANOMALY_SPACECRAFT_ID} (EPS/ADCS), ${PROP_ANOMALY_SPACECRAFT_ID} (prop leak)`,
     );
 
     tickInterval = setInterval(() => {
@@ -244,6 +253,11 @@ const fleet = buildFleet(NUM_SPACECRAFT);
 if (!fleet.includes(ANOMALY_SPACECRAFT_ID)) {
   console.warn(
     `[simulator] warning: ${ANOMALY_SPACECRAFT_ID} is outside fleet size ${NUM_SPACECRAFT}`,
+  );
+}
+if (!fleet.includes(PROP_ANOMALY_SPACECRAFT_ID)) {
+  console.warn(
+    `[simulator] warning: ${PROP_ANOMALY_SPACECRAFT_ID} is outside fleet size ${NUM_SPACECRAFT}`,
   );
 }
 

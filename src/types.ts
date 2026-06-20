@@ -27,6 +27,8 @@ export interface AppConfig {
   elasticsearchIndex: string;
   mlJobId: string;
   agentPollIntervalMs: number;
+  agentMlMinScore: number;
+  agentMlLimit: number;
 }
 
 export function loadConfig(): AppConfig {
@@ -38,5 +40,7 @@ export function loadConfig(): AppConfig {
     elasticsearchIndex: process.env.ELASTICSEARCH_INDEX ?? "telemetry",
     mlJobId: process.env.ML_JOB_ID ?? "telemetry-population",
     agentPollIntervalMs: Number(process.env.AGENT_POLL_INTERVAL_MS ?? 30_000),
+    agentMlMinScore: Number(process.env.AGENT_ML_MIN_SCORE ?? 25),
+    agentMlLimit: Number(process.env.AGENT_ML_LIMIT ?? 10),
   };
 }

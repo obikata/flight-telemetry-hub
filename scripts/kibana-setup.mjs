@@ -15,6 +15,47 @@ const ML_JOB_ID = process.env.ML_JOB_ID ?? "telemetry-population";
 const ANOMALY_ID = process.env.ANOMALY_SPACECRAFT_ID ?? "DEMO-SAT-042";
 const NUM_SPACECRAFT = Number(process.env.NUM_SPACECRAFT ?? "200");
 const MAX_ATTEMPTS = Number(process.env.MAX_ATTEMPTS ?? "60");
+/** Wait for .ml-anomalies-shared docs before ML panel (0 = check once, no wait loop). */
+const ML_ANOMALY_MAX_ATTEMPTS = Number(process.env.ML_ANOMALY_MAX_ATTEMPTS ?? "0");
+
+async function mlAnomalyDocCount() {
+  try {
+    const res = await fetch(`${ES_URL}/.ml-anomalies-shared/_count`);
+    if (!res.ok) return 0;
+    const { count } = await res.json();
+    return count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function waitForMlAnomalies() {
+  const initial = await mlAnomalyDocCount();
+  if (initial >= 1) {
+    console.log(`[kibana-setup] ML anomalies ready (${initial} docs)`);
+    return true;
+  }
+  if (ML_ANOMALY_MAX_ATTEMPTS <= 0) {
+    console.warn(
+      "[kibana-setup] no ML anomaly documents yet — dashboard will omit ML ranking panel (re-run after ml-setup warms up)",
+    );
+    return false;
+  }
+
+  console.log("[kibana-setup] waiting for ML anomaly documents...");
+  for (let attempt = 1; attempt <= ML_ANOMALY_MAX_ATTEMPTS; attempt++) {
+    await sleep(5000);
+    const count = await mlAnomalyDocCount();
+    if (count >= 1) {
+      console.log(`[kibana-setup] ML anomalies ready (${count} docs)`);
+      return true;
+    }
+  }
+  console.warn(
+    "[kibana-setup] ML anomalies not ready — dashboard will omit ML ranking panel (re-run after ml-setup warms up)",
+  );
+  return false;
+}
 
 const headers = { "kbn-xsrf": "true", "Content-Type": "application/json" };
 
@@ -51,11 +92,16 @@ async function kibana(path, init = {}) {
   return body;
 }
 
-async function syncIndexPatternFields(dataViewId) {
+async function syncIndexPatternFields(dataViewId, { required = true } = {}) {
   const { data_view: dataView } = await kibana(`/api/data_views/data_view/${dataViewId}`);
   const fieldsArr = Object.values(dataView.fields ?? {});
   if (fieldsArr.length === 0) {
-    throw new Error(`data view ${dataViewId} has no fields — is ${ES_INDEX} indexed?`);
+    const msg = `data view ${dataViewId} has no fields`;
+    if (!required) {
+      console.warn(`[kibana-setup] ${msg} — skipping field sync`);
+      return false;
+    }
+    throw new Error(`${msg} — is ${ES_INDEX} indexed?`);
   }
 
   const { attributes } = await kibana(`/api/saved_objects/index-pattern/${dataViewId}`);
@@ -70,14 +116,15 @@ async function syncIndexPatternFields(dataViewId) {
     }),
   });
   console.log(`[kibana-setup] synced ${fieldsArr.length} fields for ${dataViewId}`);
+  return true;
 }
 
-async function createDataView(spec) {
+async function createDataView(spec, { required = true } = {}) {
   await kibana("/api/data_views/data_view", {
     method: "POST",
     body: JSON.stringify({ data_view: spec, override: true }),
   }).catch(() => undefined);
-  await syncIndexPatternFields(spec.id);
+  return syncIndexPatternFields(spec.id, { required });
 }
 
 const SPACECRAFT_LINE_WIDTH = 1;
@@ -128,7 +175,8 @@ function compareVis(title, metric) {
       time_field: "timestamp",
       // TSVB resolves index_pattern as an ES index name — use data view title, not id.
       index_pattern: ES_INDEX,
-      interval: "auto",
+      // 1m keeps 200 spacecraft × ~60 buckets/hour under search.max_buckets (auto can pick 10s → 72k buckets).
+      interval: "1m",
       axis_position: "left",
       axis_formatter: "number",
       axis_scale: "normal",
@@ -174,7 +222,7 @@ function mlRankingLens() {
         columns: [{ columnId: "spacecraft" }, { columnId: "max-score" }],
       },
       query: {
-        query: `job_id: "${ML_JOB_ID}" and result_type: record and record_score > 0`,
+        query: `job_id: "${ML_JOB_ID}" and result_type: record and record_score > 5`,
         language: "kuery",
       },
       filters: [],
@@ -301,14 +349,21 @@ async function main() {
     timeFieldName: "timestamp",
   });
 
-  console.log("[kibana-setup] creating ML anomalies data view...");
-  await createDataView({
-    id: "ml-anomalies-data-view",
-    title: ".ml-anomalies-shared",
-    name: "ml-anomalies",
-    timeFieldName: "timestamp",
-    allowHidden: true,
-  });
+  let mlPanelReady = false;
+  const mlReady = await waitForMlAnomalies();
+  if (mlReady) {
+    console.log("[kibana-setup] creating ML anomalies data view...");
+    mlPanelReady = await createDataView(
+      {
+        id: "ml-anomalies-data-view",
+        title: ".ml-anomalies-shared",
+        name: "ml-anomalies",
+        timeFieldName: "timestamp",
+        allowHidden: true,
+      },
+      { required: false },
+    );
+  }
 
   console.log("[kibana-setup] creating visualizations...");
   const charts = [
@@ -322,7 +377,67 @@ async function main() {
     await saveVisualization(id, compareVis(title, metric), "telemetry-data-view");
   }
 
-  await saveLens("lens-ml-anomaly-ranking", mlRankingLens(), "ml-anomalies-data-view");
+  if (mlPanelReady) {
+    await saveLens("lens-ml-anomaly-ranking", mlRankingLens(), "ml-anomalies-data-view");
+  }
+
+  const panels = [
+    {
+      version: "8.17.0",
+      type: "visualization",
+      gridData: { x: 0, y: 0, w: 24, h: 15, i: "1" },
+      panelIndex: "1",
+      embeddableConfig: {},
+      panelRefName: "panel_1",
+    },
+    {
+      version: "8.17.0",
+      type: "visualization",
+      gridData: { x: 24, y: 0, w: 24, h: 15, i: "2" },
+      panelIndex: "2",
+      embeddableConfig: {},
+      panelRefName: "panel_2",
+    },
+    {
+      version: "8.17.0",
+      type: "visualization",
+      gridData: { x: 0, y: 15, w: 24, h: 15, i: "3" },
+      panelIndex: "3",
+      embeddableConfig: {},
+      panelRefName: "panel_3",
+    },
+    {
+      version: "8.17.0",
+      type: "visualization",
+      gridData: { x: 24, y: 15, w: 24, h: 15, i: "4" },
+      panelIndex: "4",
+      embeddableConfig: {},
+      panelRefName: "panel_4",
+    },
+  ];
+  const references = [
+    { name: "panel_1", type: "visualization", id: "viz-battery-voltage" },
+    { name: "panel_2", type: "visualization", id: "viz-pointing-error" },
+    { name: "panel_3", type: "visualization", id: "viz-panel-temp" },
+    { name: "panel_4", type: "visualization", id: "viz-tank-pressure" },
+    {
+      name: "kibanaSavedObjectMeta.searchSourceJSON.index",
+      type: "index-pattern",
+      id: "telemetry-data-view",
+    },
+  ];
+
+  if (mlPanelReady) {
+    panels.push({
+      version: "8.17.0",
+      type: "lens",
+      gridData: { x: 0, y: 30, w: 48, h: 18, i: "5" },
+      panelIndex: "5",
+      embeddableConfig: { ignoreGlobalFilters: true },
+      panelRefName: "panel_5",
+    });
+    references.splice(4, 0, { name: "panel_5", type: "lens", id: "lens-ml-anomaly-ranking" });
+  }
 
   console.log("[kibana-setup] creating dashboard...");
   await kibana("/api/saved_objects/dashboard/flight-telemetry-dashboard?overwrite=true", {
@@ -345,48 +460,7 @@ async function main() {
           syncTooltips: false,
           hidePanelTitles: false,
         }),
-        panelsJSON: JSON.stringify([
-          {
-            version: "8.17.0",
-            type: "visualization",
-            gridData: { x: 0, y: 0, w: 24, h: 15, i: "1" },
-            panelIndex: "1",
-            embeddableConfig: {},
-            panelRefName: "panel_1",
-          },
-          {
-            version: "8.17.0",
-            type: "visualization",
-            gridData: { x: 24, y: 0, w: 24, h: 15, i: "2" },
-            panelIndex: "2",
-            embeddableConfig: {},
-            panelRefName: "panel_2",
-          },
-          {
-            version: "8.17.0",
-            type: "visualization",
-            gridData: { x: 0, y: 15, w: 24, h: 15, i: "3" },
-            panelIndex: "3",
-            embeddableConfig: {},
-            panelRefName: "panel_3",
-          },
-          {
-            version: "8.17.0",
-            type: "visualization",
-            gridData: { x: 24, y: 15, w: 24, h: 15, i: "4" },
-            panelIndex: "4",
-            embeddableConfig: {},
-            panelRefName: "panel_4",
-          },
-          {
-            version: "8.17.0",
-            type: "lens",
-            gridData: { x: 0, y: 30, w: 48, h: 18, i: "5" },
-            panelIndex: "5",
-            embeddableConfig: { ignoreGlobalFilters: true },
-            panelRefName: "panel_5",
-          },
-        ]),
+        panelsJSON: JSON.stringify(panels),
         kibanaSavedObjectMeta: {
           searchSourceJSON: JSON.stringify({
             query: { query: "", language: "kuery" },
@@ -395,18 +469,7 @@ async function main() {
           }),
         },
       },
-      references: [
-        { name: "panel_1", type: "visualization", id: "viz-battery-voltage" },
-        { name: "panel_2", type: "visualization", id: "viz-pointing-error" },
-        { name: "panel_3", type: "visualization", id: "viz-panel-temp" },
-        { name: "panel_4", type: "visualization", id: "viz-tank-pressure" },
-        { name: "panel_5", type: "lens", id: "lens-ml-anomaly-ranking" },
-        {
-          name: "kibanaSavedObjectMeta.searchSourceJSON.index",
-          type: "index-pattern",
-          id: "telemetry-data-view",
-        },
-      ],
+      references,
     }),
   });
 

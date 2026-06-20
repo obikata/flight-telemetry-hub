@@ -163,7 +163,7 @@
     <header>
       <div>
         <h1>Fleet Watch Agent</h1>
-        <p>Autonomous monitor — detects fleet outliers before you open the ML ranking table.</p>
+        <p>Monitors Elasticsearch ML population-analysis scores and pushes fleet outliers.</p>
       </div>
       <div class="status">
         <span id="ws-status" class="pill warn">connecting</span>
@@ -193,14 +193,22 @@
           : "—";
         agentStatus.textContent = `agent · ${status.active_findings ?? 0} active · scan #${status.scans_completed ?? 0}`;
         agentStatus.className = "pill ok";
-        scanBanner.innerHTML = `Agent is <strong>running</strong> — last scan at <strong>${last}</strong> · ${status.active_findings ?? 0} active finding(s). New alerts appear when anomalies are first detected or values change.`;
+        if (status.awaiting_ml_data) {
+          scanBanner.innerHTML = `Agent is <strong>running</strong> — last scan at <strong>${last}</strong>. ML job is open but scores are still warming up (~10 min after <code>ml-setup</code>).`;
+          return;
+        }
+        if (!status.ml_job_running) {
+          scanBanner.innerHTML = `Agent is <strong>running</strong> — last scan at <strong>${last}</strong>. ML job is not open — run <code>docker compose run --rm ml-setup</code>.`;
+          return;
+        }
+        scanBanner.innerHTML = `Agent is <strong>running</strong> — last scan at <strong>${last}</strong> · ${status.active_findings ?? 0} active ML finding(s). Matches the Kibana ML Fleet Anomaly Ranking panel.`;
       }
 
       function render() {
         const items = [...findings.values()].sort((a, b) => b.score - a.score);
         if (items.length === 0) {
           feed.innerHTML =
-            '<div class="empty">No active findings. Agent scans every 30s — rule checks work immediately; ML confirms after ~10 min.</div>';
+            '<div class="empty">No ML findings yet. Run <code>docker compose run --rm ml-setup</code>, wait ~10 minutes for population scores, then refresh.</div>';
           return;
         }
 
@@ -210,7 +218,7 @@
           <article class="finding ${f.severity}">
             <div class="finding-head">
               <h2>${f.summary}</h2>
-              <span class="badge ${f.severity}">${f.severity} · ${f.source} · ${f.score}</span>
+              <span class="badge ${f.severity}">${f.severity} · ML · ${f.score}</span>
             </div>
             <div class="meta">${f.spacecraft_id} · ${f.metric} · first seen ${new Date(f.first_seen_at).toLocaleTimeString()} · refreshed ${new Date(f.detected_at).toLocaleTimeString()}</div>
             <div class="detail">${f.detail}</div>
