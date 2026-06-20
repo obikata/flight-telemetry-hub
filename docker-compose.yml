@@ -1,0 +1,63 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.17.0
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - xpack.security.enabled=false
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  kibana-setup:
+    image: curlimages/curl:8.12.1
+    volumes:
+      - ./scripts/kibana-import.sh:/setup/kibana-import.sh:ro
+    entrypoint: ["/bin/sh", "/setup/kibana-import.sh"]
+    depends_on:
+      - kibana
+
+  telemetry-server:
+    build: .
+    ports:
+      - "3000:3000"
+      - "9000:9000"
+    environment:
+      HTTP_PORT: 3000
+      TCP_PORT: 9000
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_INDEX: telemetry
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  simulator:
+    build: .
+    command: ["node", "dist/scripts/simulator.js"]
+    environment:
+      TCP_HOST: telemetry-server
+      TCP_PORT: 9000
+      SPACECRAFT_ID: DEMO-SAT-01
+      INTERVAL_MS: 1000
+    depends_on:
+      - telemetry-server
+
+volumes:
+  es-data:

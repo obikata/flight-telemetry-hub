@@ -1,0 +1,31 @@
+{
+  "name": "flight-telemetry-hub",
+  "version": "1.0.0",
+  "description": "Mini spacecraft telemetry ground station — TCP ingest, WebSocket broadcast, Elasticsearch storage",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "simulator": "tsx scripts/simulator.ts",
+    "typecheck": "tsc --noEmit",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down -v",
+    "docker:logs": "docker compose logs -f telemetry-server"
+  },
+  "dependencies": {
+    "@elastic/elasticsearch": "^8.17.0",
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

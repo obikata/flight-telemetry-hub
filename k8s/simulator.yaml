@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telemetry-simulator
+  namespace: flight-telemetry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: telemetry-simulator
+  template:
+    metadata:
+      labels:
+        app: telemetry-simulator
+    spec:
+      containers:
+        - name: simulator
+          image: flight-telemetry-hub:latest
+          imagePullPolicy: IfNotPresent
+          command: ["node", "dist/scripts/simulator.js"]
+          envFrom:
+            - configMapRef:
+                name: telemetry-config
+          env:
+            - name: TCP_HOST
+              value: telemetry-server

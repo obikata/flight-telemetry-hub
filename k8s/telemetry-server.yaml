@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telemetry-server
+  namespace: flight-telemetry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: telemetry-server
+  template:
+    metadata:
+      labels:
+        app: telemetry-server
+    spec:
+      containers:
+        - name: telemetry-server
+          image: flight-telemetry-hub:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+            - name: tcp
+              containerPort: 9000
+          envFrom:
+            - configMapRef:
+                name: telemetry-config
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: telemetry-server
+  namespace: flight-telemetry
+spec:
+  selector:
+    app: telemetry-server
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+    - name: tcp
+      port: 9000
+      targetPort: 9000
