@@ -4,7 +4,8 @@ services:
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.ml.enabled=true
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
     ports:
       - "9200:9200"
     healthcheck:
@@ -22,17 +23,33 @@ services:
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
       - xpack.security.enabled=false
+      - 'TIMEPICKER_TIME_DEFAULTS={"from":"now-1h","to":"now"}'
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5601/api/status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
     depends_on:
       elasticsearch:
         condition: service_healthy
 
   kibana-setup:
-    image: curlimages/curl:8.12.1
+    image: node:22-alpine
     volumes:
-      - ./scripts/kibana-import.sh:/setup/kibana-import.sh:ro
-    entrypoint: ["/bin/sh", "/setup/kibana-import.sh"]
+      - ./scripts/kibana-setup.mjs:/setup/kibana-setup.mjs:ro
+    command: ["node", "/setup/kibana-setup.mjs"]
+    environment:
+      KIBANA_URL: http://kibana:5601
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_INDEX: telemetry
+      ANOMALY_SPACECRAFT_ID: DEMO-SAT-042
+      NUM_SPACECRAFT: 200
+      ML_JOB_ID: telemetry-population
     depends_on:
-      - kibana
+      kibana:
+        condition: service_healthy
+      simulator:
+        condition: service_started
 
   telemetry-server:
     build: .
@@ -44,6 +61,7 @@ services:
       TCP_PORT: 9000
       ELASTICSEARCH_URL: http://elasticsearch:9200
       ELASTICSEARCH_INDEX: telemetry
+      ML_JOB_ID: telemetry-population
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -54,10 +72,27 @@ services:
     environment:
       TCP_HOST: telemetry-server
       TCP_PORT: 9000
-      SPACECRAFT_ID: DEMO-SAT-01
+      NUM_SPACECRAFT: 200
+      ANOMALY_SPACECRAFT_ID: DEMO-SAT-042
       INTERVAL_MS: 1000
     depends_on:
       - telemetry-server
+
+  ml-setup:
+    image: curlimages/curl:8.12.1
+    volumes:
+      - ./scripts/ml-setup.sh:/setup/ml-setup.sh:ro
+    entrypoint: ["/bin/sh", "/setup/ml-setup.sh"]
+    environment:
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_INDEX: telemetry
+      ML_JOB_ID: telemetry-population
+      ML_MIN_DOCS: 5000
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      simulator:
+        condition: service_started
 
 volumes:
   es-data:

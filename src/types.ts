@@ -25,6 +25,8 @@ export interface AppConfig {
   wsPath: string;
   elasticsearchUrl: string;
   elasticsearchIndex: string;
+  mlJobId: string;
+  agentPollIntervalMs: number;
 }
 
 export function loadConfig(): AppConfig {
@@ -34,5 +36,7 @@ export function loadConfig(): AppConfig {
     wsPath: process.env.WS_PATH ?? "/telemetry",
     elasticsearchUrl: process.env.ELASTICSEARCH_URL ?? "http://localhost:9200",
     elasticsearchIndex: process.env.ELASTICSEARCH_INDEX ?? "telemetry",
+    mlJobId: process.env.ML_JOB_ID ?? "telemetry-population",
+    agentPollIntervalMs: Number(process.env.AGENT_POLL_INTERVAL_MS ?? 30_000),
   };
 }

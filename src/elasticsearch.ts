@@ -16,7 +16,7 @@ const INDEX_MAPPING = {
 };
 
 export class TelemetryStore {
-  private readonly client: Client;
+  readonly client: Client;
   private ready = false;
 
   constructor(private readonly index: string, nodeUrl: string) {

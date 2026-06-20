@@ -1,8 +1,14 @@
 import express from "express";
+import type { FleetWatchAgent } from "./agent.js";
 import type { TelemetryStore } from "./elasticsearch.js";
+import type { MlAnomalyClient } from "./ml.js";
 import type { Subsystem, TelemetryQuery } from "./types.js";
 
-export function createApiRouter(store: TelemetryStore): express.Router {
+export function createApiRouter(
+  store: TelemetryStore,
+  mlClient: MlAnomalyClient,
+  agent?: FleetWatchAgent,
+): express.Router {
   const router = express.Router();
 
   router.get("/health", async (_req, res) => {
@@ -12,6 +18,50 @@ export function createApiRouter(store: TelemetryStore): express.Router {
       elasticsearch,
       timestamp: new Date().toISOString(),
     });
+  });
+
+  router.get("/anomalies", async (req, res) => {
+    try {
+      const limit = asNumber(req.query.limit) ?? 10;
+      const jobRunning = await mlClient.isJobRunning();
+      const records = await mlClient.getTopAnomalies(limit);
+
+      res.json({
+        job_running: jobRunning,
+        count: records.length,
+        data: records,
+        hint: jobRunning
+          ? "Scores rise after ~10 minutes of fleet telemetry. Look for DEMO-SAT-042."
+          : "ML job not running — run: docker compose run --rm ml-setup",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  router.get("/agent/findings", async (_req, res) => {
+    if (!agent) {
+      res.status(503).json({ error: "Fleet watch agent is not enabled" });
+      return;
+    }
+
+    const jobRunning = await mlClient.isJobRunning();
+    res.json({
+      count: agent.getFindings().length,
+      data: agent.getFindings(),
+      status: agent.getStatus(jobRunning),
+    });
+  });
+
+  router.get("/agent/status", async (_req, res) => {
+    if (!agent) {
+      res.status(503).json({ error: "Fleet watch agent is not enabled" });
+      return;
+    }
+
+    const jobRunning = await mlClient.isJobRunning();
+    res.json(agent.getStatus(jobRunning));
   });
 
   router.get("/telemetry", async (req, res) => {
@@ -40,7 +90,11 @@ export function createApiRouter(store: TelemetryStore): express.Router {
       endpoints: {
         health: "GET /health",
         telemetry: "GET /telemetry?spacecraft_id=&subsystem=&metric=&from=&to=&limit=",
-        websocket: "WS /telemetry",
+        anomalies: "GET /anomalies?limit=10",
+        agentFindings: "GET /agent/findings",
+        agentStatus: "GET /agent/status",
+        agentConsole: "GET /agent/console",
+        websocket: "WS /telemetry (telemetry + agent_finding events)",
         tcpIngest: "TCP newline-delimited JSON on port 9000",
       },
     });

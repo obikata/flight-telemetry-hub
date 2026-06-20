@@ -8,5 +8,7 @@ data:
   TCP_PORT: "9000"
   ELASTICSEARCH_URL: "http://elasticsearch:9200"
   ELASTICSEARCH_INDEX: "telemetry"
-  SPACECRAFT_ID: "DEMO-SAT-01"
+  NUM_SPACECRAFT: "200"
+  ANOMALY_SPACECRAFT_ID: "DEMO-SAT-042"
   INTERVAL_MS: "1000"
+  ML_JOB_ID: "telemetry-population"

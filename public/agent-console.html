@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fleet Watch Agent</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d1117;
+        --panel: #161b22;
+        --border: #30363d;
+        --text: #e6edf3;
+        --muted: #8b949e;
+        --info: #58a6ff;
+        --warning: #d29922;
+        --critical: #f85149;
+        --ok: #3fb950;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+      }
+      header {
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 1.1rem;
+        font-weight: 600;
+      }
+      header p {
+        margin: 0.25rem 0 0;
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      .status {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        font-size: 0.85rem;
+      }
+      .pill {
+        padding: 0.2rem 0.55rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+      }
+      .pill.ok {
+        border-color: var(--ok);
+        color: var(--ok);
+      }
+      .pill.warn {
+        border-color: var(--warning);
+        color: var(--warning);
+      }
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 1.5rem;
+      }
+      .empty {
+        border: 1px dashed var(--border);
+        border-radius: 12px;
+        padding: 2rem;
+        text-align: center;
+        color: var(--muted);
+      }
+      .finding {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel);
+        padding: 1rem 1.1rem;
+        margin-bottom: 0.75rem;
+      }
+      .finding.critical {
+        border-color: color-mix(in srgb, var(--critical) 60%, var(--border));
+      }
+      .finding.warning {
+        border-color: color-mix(in srgb, var(--warning) 60%, var(--border));
+      }
+      .finding-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        align-items: start;
+        margin-bottom: 0.5rem;
+      }
+      .finding-head h2 {
+        margin: 0;
+        font-size: 1rem;
+      }
+      .badge {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding: 0.15rem 0.45rem;
+        border-radius: 6px;
+        white-space: nowrap;
+      }
+      .badge.critical {
+        background: color-mix(in srgb, var(--critical) 20%, transparent);
+        color: var(--critical);
+      }
+      .badge.warning {
+        background: color-mix(in srgb, var(--warning) 20%, transparent);
+        color: var(--warning);
+      }
+      .badge.info {
+        background: color-mix(in srgb, var(--info) 20%, transparent);
+        color: var(--info);
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 0.85rem;
+        margin-bottom: 0.5rem;
+      }
+      .scan-banner {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel);
+        padding: 0.75rem 1rem;
+        margin-bottom: 1rem;
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+      .scan-banner strong {
+        color: var(--ok);
+      }
+      .detail,
+      .action {
+        font-size: 0.92rem;
+        line-height: 1.45;
+      }
+      .action {
+        margin-top: 0.65rem;
+        color: var(--info);
+      }
+      footer {
+        margin-top: 1.5rem;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+      a {
+        color: var(--info);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Fleet Watch Agent</h1>
+        <p>Autonomous monitor — detects fleet outliers before you open the ML ranking table.</p>
+      </div>
+      <div class="status">
+        <span id="ws-status" class="pill warn">connecting</span>
+        <span id="agent-status" class="pill">agent —</span>
+      </div>
+    </header>
+    <main>
+      <div id="scan-banner" class="scan-banner">Waiting for first agent scan…</div>
+      <div id="feed"></div>
+      <footer>
+        REST: <code>GET /agent/findings</code> · Kibana:
+        <a href="http://localhost:5601/app/dashboards#/view/flight-telemetry-dashboard" target="_blank" rel="noreferrer"
+          >Flight Telemetry Dashboard</a
+        >
+      </footer>
+    </main>
+    <script>
+      const feed = document.getElementById("feed");
+      const scanBanner = document.getElementById("scan-banner");
+      const wsStatus = document.getElementById("ws-status");
+      const agentStatus = document.getElementById("agent-status");
+      const findings = new Map();
+
+      function formatStatus(status) {
+        const last = status.last_scan_at
+          ? new Date(status.last_scan_at).toLocaleTimeString()
+          : "—";
+        agentStatus.textContent = `agent · ${status.active_findings ?? 0} active · scan #${status.scans_completed ?? 0}`;
+        agentStatus.className = "pill ok";
+        scanBanner.innerHTML = `Agent is <strong>running</strong> — last scan at <strong>${last}</strong> · ${status.active_findings ?? 0} active finding(s). New alerts appear when anomalies are first detected or values change.`;
+      }
+
+      function render() {
+        const items = [...findings.values()].sort((a, b) => b.score - a.score);
+        if (items.length === 0) {
+          feed.innerHTML =
+            '<div class="empty">No active findings. Agent scans every 30s — rule checks work immediately; ML confirms after ~10 min.</div>';
+          return;
+        }
+
+        feed.innerHTML = items
+          .map(
+            (f) => `
+          <article class="finding ${f.severity}">
+            <div class="finding-head">
+              <h2>${f.summary}</h2>
+              <span class="badge ${f.severity}">${f.severity} · ${f.source} · ${f.score}</span>
+            </div>
+            <div class="meta">${f.spacecraft_id} · ${f.metric} · first seen ${new Date(f.first_seen_at).toLocaleTimeString()} · refreshed ${new Date(f.detected_at).toLocaleTimeString()}</div>
+            <div class="detail">${f.detail}</div>
+            <div class="action">→ ${f.suggested_action}</div>
+          </article>`,
+          )
+          .join("");
+      }
+
+      function upsert(finding) {
+        findings.set(finding.id, finding);
+        render();
+      }
+
+      async function loadInitial() {
+        const res = await fetch("/agent/findings");
+        const body = await res.json();
+        for (const finding of body.data ?? []) {
+          upsert(finding);
+        }
+        const status = body.status ?? {};
+        formatStatus(status);
+      }
+
+      function connectWs() {
+        const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+        const socket = new WebSocket(`${protocol}//${location.host}/telemetry`);
+
+        socket.onopen = () => {
+          wsStatus.textContent = "live";
+          wsStatus.className = "pill ok";
+        };
+
+        socket.onclose = () => {
+          wsStatus.textContent = "reconnecting";
+          wsStatus.className = "pill warn";
+          setTimeout(connectWs, 3000);
+        };
+
+        socket.onmessage = (event) => {
+          const message = JSON.parse(event.data);
+          if (message.type === "agent_finding") {
+            upsert(message.data);
+          }
+          if (message.type === "agent_status") {
+            formatStatus(message.data);
+          }
+        };
+      }
+
+      loadInitial().catch(console.error);
+      connectWs();
+      setInterval(loadInitial, 10000);
+    </script>
+  </body>
+</html>

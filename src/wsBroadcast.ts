@@ -34,12 +34,16 @@ export class WsBroadcastServer {
   }
 
   broadcast(frame: TelemetryFrame): void {
+    this.broadcastJson({ type: "telemetry", data: frame });
+  }
+
+  broadcastJson(payload: object): void {
     if (!this.wss) return;
 
-    const payload = JSON.stringify({ type: "telemetry", data: frame });
+    const message = JSON.stringify(payload);
     for (const client of this.wss.clients) {
       if (client.readyState === WebSocket.OPEN) {
-        client.send(payload);
+        client.send(message);
       }
     }
   }
